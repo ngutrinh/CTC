@@ -1,0 +1,57 @@
+1. Alignment(HISAT2)
+#single-end
+hisat2 -p 15 -x $hisat_index -U INPUT.fastq.gz | samtools view -Sb -o OUTPUT.bam -
+#paired-end
+hisat2 -p 15 -x $hisat_index -1 INPUT_1.fastq.gz -2 INPUT_2.fastq.gz | samtools view -Sb -o OUTPUT.bam -
+
+2. Sorting
+samtools sort -o OUTPUT.st.bam INPUT.bam
+
+3. Indexing
+samtools index INPUT.st.bam OUTPUT.st.bam.bai
+
+4. Quantification
+#Known transcript
+stringtie INPUT.bam -G Annotation.gtf -b OUTPUT_DIR_READCOUNT_INFO -o OUTPUT.gtf -A OUTPUT_gene_abundance.tab -p CPU -e
+#Novel transcript
+stringtie INPUT.bam -G Annotation.gtf -b OUTPUT_DIR_READCOUNT_INFO -o OUTPUT.gtf -A OUTPUT_gene_abundance.tab -p CPU
+
+5. Stringtie merge
+**After combining the GTF files, expression values for each sample of known and novel transcripts are calculated
+
+stringtie --merge -G Annotation.gtf -p 10 -o OUTPUT_merge.gtf INPUT_merge_list.txt
+
+6. compare
+**Comparison with existing annotations and differentiation of new transcript types
+
+gffcompare -r Annotation.gtf -o OUTPUT_prefix stringtie_merge.gtf
+
+7. DEG
+1) Read count table
+prepDE.py -i sample_list.txt -g OUTPUT_gene_count.csv -t OUTPUT_transcript_count.csv
+
+2) EdgeR
+
+library(edgeR)
+
+data <- read.table("$PATH/Stringtie_readcount.csv", header = T, row.names = NULL)
+samples = c("1_cl_1", "1_sc_1")
+groups = c("group2", "group1")
+data <- data[!(data$1_cl_1==0 & data$1_sc_1==0), ]
+row.names(data) <- data$Row.names
+colnames(data)
+data1 <- data[,samples]
+
+myCPM <- cpm(data1,normalized.lib.sizes=TRUE,prior.count = 1)
+
+bcv <- 0.2
+dgeObj <- DGEList(data1, group = groups, genes = data1[,1])
+
+dge_1 <- calcNormFactors(dgeObj)
+dge_1$samples
+et <- exactTest(dge_1, dispersion = bcv^2)
+
+row.names(et) <- data$gene_id
+colnames(et)
+data1 <- data[,samples]
+write.table(et$table, file="$PATH/1_cl_1_vs_1_sc_1_output.txt", quote = FALSE, sep = "\t")
